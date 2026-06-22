@@ -1,12 +1,8 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 
+// index.css also pulls in react-notion-x / prism / katex styles and the Notion overrides.
 import "./index.css"
-// react-notion-x core styles + optional code/equation themes
-import "react-notion-x/styles.css"
-import "prismjs/themes/prism-tomorrow.css"
-import "katex/dist/katex.min.css"
-import "./notion-overrides.css"
 
 import App from "./App.tsx"
 import { ThemeProvider } from "@/lib/theme"

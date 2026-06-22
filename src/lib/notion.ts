@@ -20,21 +20,13 @@ export function extractPageId(input: string): string {
 }
 
 /**
- * Where notion-client should send its POST requests.
- * - Dev: Vite proxies `/notion-api/*` -> www.notion.so (no CORS).
- * - Prod: a same-origin path the host rewrites to Notion (Vercel/Netlify).
+ * Where notion-client should send its POST requests. Always the same-origin
+ * `/notion-api/*` path, which is proxied to www.notion.so so the browser never
+ * makes a cross-origin request:
+ * - Dev / `vite preview`: Vite's server.proxy / preview.proxy (see vite.config).
+ * - Prod: the host rewrites it (Vercel `vercel.json`, Netlify `_redirects`).
  */
 function getApiBaseUrl(): string {
-  // Dev: Vite's server.proxy forwards /notion-api -> www.notion.so.
-  if (import.meta.env.DEV) return "/notion-api/api/v3"
-
-  // Prod escape hatch for static hosts that can't rewrite (e.g. GitHub Pages):
-  // a build-time CORS proxy origin (e.g. a Cloudflare Worker) via VITE_NOTION_PROXY.
-  const proxy = (import.meta.env.VITE_NOTION_PROXY ?? "").trim().replace(/\/+$/, "")
-  if (proxy) return `${proxy}/api/v3`
-
-  // Default: a same-origin path the host rewrites to Notion. Works out-of-the-box
-  // on Vercel (vercel.json) and Netlify (_redirects) — no Worker, nothing to set.
   return "/notion-api/api/v3"
 }
 

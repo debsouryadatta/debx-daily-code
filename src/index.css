@@ -3,6 +3,13 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
+/* react-notion-x core styles + optional code/equation themes.
+   Imported here (after the app's own styles) so the Notion overrides at the
+   bottom of this file reliably win the cascade. */
+@import "react-notion-x/styles.css";
+@import "prismjs/themes/prism-tomorrow.css";
+@import "katex/dist/katex.min.css";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -127,4 +134,27 @@
   html {
     @apply font-sans;
     }
+}
+
+/* ===== Notion overrides — blend react-notion-x into the app shell ===== */
+
+/* Let the page body breathe and stay centered; the appbar/toolbar float over it. */
+.debx-notion .notion-page {
+  padding-bottom: 4rem;
+}
+
+/* Match the Notion canvas to the app background so the floating bars sit cleanly. */
+.notion {
+  --bg-color: transparent;
+}
+.dark .notion {
+  --bg-color: transparent;
+}
+
+/* Slightly tighten the full-width hero spacing on small screens. */
+@media (max-width: 640px) {
+  .debx-notion .notion-page {
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
 }

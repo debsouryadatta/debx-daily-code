@@ -65,12 +65,12 @@ sibling page navigate in-app; everything else opens on notion.so in a new tab.
 The app is 100% static, but Notion's API can't be called directly from a browser
 (no CORS). A proxy sits in between — and on Vercel/Netlify the host *is* the proxy.
 
-### Vercel or Netlify (recommended — zero config)
+### Vercel or Netlify (zero config)
 
 Just deploy `dist/`. The included [`vercel.json`](vercel.json) /
 [`public/_redirects`](public/_redirects) proxy `/notion-api/*` to `www.notion.so`,
 so the browser only ever calls your own origin (same-origin → no CORS). Nothing to
-paste in Settings, no Worker, no serverless function.
+configure — no env vars, no Worker, no serverless function.
 
 ```bash
 npm run build   # outputs dist/   (Vercel detects Vite automatically)
@@ -78,17 +78,9 @@ npm run build   # outputs dist/   (Vercel detects Vite automatically)
 
 The same files also serve `index.html` for SPA routes like `/read/:id` on refresh.
 
-### Other static hosts (e.g. GitHub Pages)
-
-Hosts that can't proxy need an external CORS proxy. Deploy the included
-~30-line Cloudflare Worker:
-
-```bash
-npx wrangler deploy worker/notion-proxy.js --name notion-proxy --compatibility-date 2024-01-01
-```
-
-Then set `VITE_NOTION_PROXY` to its `https://notion-proxy.<you>.workers.dev` URL
-before `npm run build` — requests go to `{VITE_NOTION_PROXY}/api/v3/…`.
+> Deploying to a host that can't rewrite requests (e.g. GitHub Pages)? You'd need
+> to front Notion's API with your own CORS proxy and point the app at it. That path
+> isn't built in — Vercel/Netlify are the supported targets.
 
 ## Notes
 
