@@ -1,4 +1,0 @@
-# Proxy Notion's API (same-origin -> no CORS). Must come before the SPA fallback.
-/notion-api/*  https://www.notion.so/:splat  200
-# SPA fallback
-/*    /index.html   200

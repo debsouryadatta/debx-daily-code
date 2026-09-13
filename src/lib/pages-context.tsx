@@ -1,188 +1,200 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
+"use client"
 
-import type { AppData, Preferences, SavedPage, SortKey, ViewMode } from "./types"
-import { DATA_VERSION, STORAGE_KEY, genId, loadData, saveData } from "./storage"
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
+import { useAccount } from "@/components/auth-gate"
+import { authClient } from "./auth-client"
+import { Button } from "@/components/ui/button"
+import { useTheme } from "./theme"
+import type { AppData, Folder, Preferences, SavedPage, SortKey, ViewMode } from "./types"
+import { genId, loadData } from "./storage"
+import { librarySchema, type LibraryOperation, type LibrarySnapshot } from "./library"
 import { extractPageId, extractSubPages, fetchNotionPage, getPageTitle } from "./notion"
 
+type Theme = NonNullable<Preferences["theme"]>
 interface PagesContextValue {
   pages: SavedPage[]
+  folders: Folder[]
+  revision: number
+  createFolder: (name: string, parentId: string | null) => Promise<Folder>
+  renameFolder: (id: string, name: string) => Promise<void>
+  moveItem: (kind: "page" | "folder", id: string, parentId: string | null) => Promise<void>
+  deleteFolder: (id: string, expectedRevision: number) => Promise<void>
   preferences: Preferences
-  /** Fetches the parent page, extracts its subpages, then stores the collection. */
-  addPage: (title: string, url: string) => Promise<SavedPage>
-  updatePage: (id: string, patch: Partial<SavedPage>) => void
-  /** Re-fetches the parent page to refresh its title + subpages (bumps updatedAt). */
+  saving: boolean
+  error: string | null
+  reload: () => Promise<void>
+  addPage: (title: string, url: string, folderId?: string | null) => Promise<SavedPage>
+  updatePage: (id: string, patch: Partial<SavedPage>) => Promise<void>
   refreshPage: (id: string, title: string, url: string) => Promise<void>
-  removePage: (id: string) => void
-  /** Set the manual order to this exact id sequence (used by drag-and-drop). */
-  reorderPages: (orderedIds: string[]) => void
+  removePage: (id: string) => Promise<void>
+  reorderPages: (ids: string[], folderId?: string | null) => Promise<void>
   getPage: (id: string) => SavedPage | undefined
-  setSortBy: (sortBy: SortKey) => void
-  setView: (view: ViewMode) => void
-  /** Current snapshot of everything persisted, for export. */
+  setSortBy: (sortBy: SortKey) => Promise<void>
+  setView: (view: ViewMode) => Promise<void>
+  setThemePreference: (theme: Theme) => Promise<void>
   exportData: () => AppData
-  /** Replace all pages + preferences from an imported snapshot. */
-  importData: (data: AppData) => void
+  importData: (data: AppData) => Promise<void>
+  browserImportAvailable: boolean
+  importBrowserData: () => Promise<void>
+  dismissBrowserImport: () => void
 }
-
 const PagesContext = createContext<PagesContextValue | null>(null)
+const message = (error: unknown) => error instanceof Error ? error.message : "Unable to save your changes. Please try again."
 
 export function PagesProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData>(() => loadData())
+  const { user } = useAccount()
+  const { refetch: refetchSession } = authClient.useSession()
+  const refreshSession = useRef(refetchSession)
+  useEffect(() => { refreshSession.current = refetchSession }, [refetchSession])
+  const { setTheme } = useTheme()
+  const [snapshot, setSnapshot] = useState<LibrarySnapshot | null>(null)
+  const latest = useRef<LibrarySnapshot | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const alive = useRef(false)
+  const pending = useRef(0)
+  const queue = useRef<Promise<unknown>>(Promise.resolve())
+  const importKey = `debx.browser-import.${user.id}`
+  const [browserImportAvailable, setBrowserImportAvailable] = useState(() => {
+    try { return !localStorage.getItem(importKey) && loadData().pages.length > 0 } catch { return false }
+  })
 
-  // Persist the whole app object on every change (single key).
-  useEffect(() => {
-    saveData(data)
-  }, [data])
-
-  // Keep multiple tabs in sync.
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY || e.key === null) setData(loadData())
-    }
-    window.addEventListener("storage", onStorage)
-    return () => window.removeEventListener("storage", onStorage)
-  }, [])
-
-  const setPages = useCallback(
-    (updater: (prev: SavedPage[]) => SavedPage[]) => {
-      setData((prev) => ({ ...prev, pages: updater(prev.pages) }))
-    },
-    [],
-  )
-
-  const updatePage = useCallback<PagesContextValue["updatePage"]>(
-    (id, patch) => {
-      setPages((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
-    },
-    [setPages],
-  )
-
-  const addPage = useCallback<PagesContextValue["addPage"]>(
-    async (title, url) => {
-      const pageId = extractPageId(url) // throws if invalid -> caller handles
-      const recordMap = await fetchNotionPage(pageId) // throws on bad/unpublished page
-      const subpages = extractSubPages(recordMap)
-      const now = Date.now()
-      const page: SavedPage = {
-        id: genId(),
-        title: title.trim() || getPageTitle(recordMap),
-        url: url.trim(),
-        pageId,
-        subpages,
-        createdAt: now,
-        updatedAt: now,
-      }
-      setPages((prev) => [...prev, page])
-      return page
-    },
-    [setPages],
-  )
-
-  const refreshPage = useCallback<PagesContextValue["refreshPage"]>(
-    async (id, title, url) => {
-      const pageId = extractPageId(url)
-      const recordMap = await fetchNotionPage(pageId)
-      const subpages = extractSubPages(recordMap)
-      updatePage(id, {
-        title: title.trim() || getPageTitle(recordMap),
-        url: url.trim(),
-        pageId,
-        subpages,
-        updatedAt: Date.now(),
-      })
-    },
-    [updatePage],
-  )
-
-  const removePage = useCallback<PagesContextValue["removePage"]>(
-    (id) => {
-      setPages((prev) => prev.filter((p) => p.id !== id))
-    },
-    [setPages],
-  )
-
-  const reorderPages = useCallback<PagesContextValue["reorderPages"]>(
-    (orderedIds) => {
-      setPages((prev) => {
-        const byId = new Map(prev.map((p) => [p.id, p]))
-        const wanted = new Set(orderedIds)
-        const next = orderedIds
-          .map((id) => byId.get(id))
-          .filter((p): p is SavedPage => Boolean(p))
-        // Safety: keep any page the caller didn't mention rather than dropping it.
-        for (const p of prev) if (!wanted.has(p.id)) next.push(p)
-        return next.length === prev.length ? next : prev
-      })
-    },
-    [setPages],
-  )
-
-  const getPage = useCallback<PagesContextValue["getPage"]>(
-    (id) => data.pages.find((p) => p.id === id),
-    [data.pages],
-  )
-
-  const setSortBy = useCallback<PagesContextValue["setSortBy"]>((sortBy) => {
-    setData((prev) => ({ ...prev, preferences: { ...prev.preferences, sortBy } }))
-  }, [])
-
-  const setView = useCallback<PagesContextValue["setView"]>((view) => {
-    setData((prev) => ({ ...prev, preferences: { ...prev.preferences, view } }))
-  }, [])
-
-  const exportData = useCallback<PagesContextValue["exportData"]>(() => data, [data])
-
-  const importData = useCallback<PagesContextValue["importData"]>((incoming) => {
-    setData({
-      version: DATA_VERSION,
-      pages: incoming.pages,
-      preferences: incoming.preferences,
+  const request = useCallback(async (operation?: LibraryOperation): Promise<LibrarySnapshot> => {
+    const response = await fetch("/api/library", {
+      method: operation ? "PATCH" : "GET",
+      credentials: "same-origin",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json", "X-Account-Id": user.id },
+      ...(operation ? { body: JSON.stringify(operation) } : {}),
     })
+    const body = await response.json()
+    if (!response.ok) {
+      if (response.status === 401 || (response.status === 409 && body.code === "ACCOUNT_CHANGED")) {
+        await refreshSession.current()
+      }
+      throw new Error(body.error || "Unable to reach your library. Please try again.")
+    }
+    return { ...body, data: librarySchema.parse(body.data) } as LibrarySnapshot
+  }, [user.id])
+
+  const accept = useCallback((incoming: LibrarySnapshot) => {
+    if (!alive.current) return
+    if (!latest.current || incoming.revision >= latest.current.revision) {
+      latest.current = incoming
+      setSnapshot(incoming)
+    }
   }, [])
 
-  const value = useMemo<PagesContextValue>(
-    () => ({
-      pages: data.pages,
-      preferences: data.preferences,
-      addPage,
-      updatePage,
-      refreshPage,
-      removePage,
-      reorderPages,
-      getPage,
-      setSortBy,
-      setView,
-      exportData,
-      importData,
-    }),
-    [
-      data.pages,
-      data.preferences,
-      addPage,
-      updatePage,
-      refreshPage,
-      removePage,
-      reorderPages,
-      getPage,
-      setSortBy,
-      setView,
-      exportData,
-      importData,
-    ],
+  const reload = useCallback(async () => {
+    if (pending.current) return
+    try {
+      const incoming = await request()
+      if (!pending.current && alive.current) { accept(incoming); setError(null) }
+    } catch (err) {
+      if (alive.current) setError(message(err))
+    }
+  }, [request, accept])
+
+  useEffect(() => {
+    alive.current = true
+    void Promise.resolve().then(() => { if (alive.current) return reload() })
+    const timer = window.setInterval(() => { if (document.visibilityState === "visible") void reload() }, 15000)
+    const focus = () => { void reload() }
+    window.addEventListener("focus", focus)
+    return () => { alive.current = false; window.clearInterval(timer); window.removeEventListener("focus", focus) }
+  }, [reload])
+
+  const accountTheme = snapshot ? snapshot.data.preferences.theme || "system" : null
+  useEffect(() => {
+    if (accountTheme) setTheme(accountTheme)
+  }, [accountTheme, setTheme])
+
+  const enqueue = useCallback(<T,>(job: () => Promise<{ operation: LibraryOperation; result: T }>): Promise<T> => {
+    pending.current++
+    setSaving(true)
+    const next = queue.current.catch(() => {}).then(async () => {
+      if (!alive.current) throw new Error("Your account changed. Please try again.")
+      const { operation, result } = await job()
+      if (!alive.current) throw new Error("Your account changed. Please try again.")
+      const incoming = await request(operation)
+      if (!alive.current) throw new Error("Your account changed. Please try again.")
+      accept(incoming)
+      setError(null)
+      return result
+    }).catch((err: unknown) => {
+      if (alive.current) setError(message(err))
+      throw err
+    }).finally(() => {
+      pending.current--
+      if (alive.current) setSaving(pending.current > 0)
+    })
+    queue.current = next
+    return next
+  }, [request, accept])
+
+  const mutate = useCallback((operation: LibraryOperation) => enqueue(async () => ({ operation, result: undefined })), [enqueue])
+  const updatePage = useCallback((id: string, patch: Partial<SavedPage>) => {
+    const editable = { ...patch }
+    delete editable.id
+    delete editable.createdAt
+    return mutate({ type: "update", id, patch: editable })
+  }, [mutate])
+  const addPage = useCallback((title: string, url: string, folderId: string | null = null) => enqueue(async () => {
+    const pageId = extractPageId(url)
+    const recordMap = await fetchNotionPage(pageId)
+    const now = Date.now()
+    const page: SavedPage = { id: genId(), folderId, title: title.trim() || getPageTitle(recordMap), url: url.trim(), pageId,
+      subpages: extractSubPages(recordMap), createdAt: now, updatedAt: now }
+    return { operation: { type: "add", page }, result: page }
+  }), [enqueue])
+  const refreshPage = useCallback((id: string, title: string, url: string) => enqueue(async () => {
+    const pageId = extractPageId(url)
+    const recordMap = await fetchNotionPage(pageId)
+    return { operation: { type: "update", id, patch: { title: title.trim() || getPageTitle(recordMap), url: url.trim(), pageId,
+      subpages: extractSubPages(recordMap), updatedAt: Date.now() } }, result: undefined }
+  }), [enqueue])
+  const dismissBrowserImport = () => {
+    try { localStorage.setItem(importKey, "done") } catch { /* Import still succeeded if storage is unavailable. */ }
+    setBrowserImportAvailable(false)
+  }
+  const importBrowserData = async () => {
+    await mutate({ type: "merge", data: librarySchema.parse(loadData()) })
+    if (alive.current) dismissBrowserImport()
+  }
+
+  if (!snapshot) return (
+    <div className="flex min-h-svh flex-col items-center justify-center gap-4 px-5 text-center">
+      <p role={error ? "alert" : "status"}>{error || "Opening your library…"}</p>
+      {error && <Button onClick={() => void reload()}>Try again</Button>}
+    </div>
   )
 
-  return <PagesContext.Provider value={value}>{children}</PagesContext.Provider>
+  return <PagesContext.Provider value={{
+    pages: snapshot.data.pages, folders: snapshot.data.folders ?? [], revision: snapshot.revision,
+    createFolder: (name, parentId) => enqueue(async () => {
+      const folder: Folder = { id: genId(), name: name.trim(), parentId, createdAt: Date.now() }
+      return { operation: { type: "createFolder", folder }, result: folder }
+    }),
+    renameFolder: (id, name) => mutate({ type: "renameFolder", id, name }),
+    moveItem: (kind, id, parentId) => mutate({ type: "move", kind, id, parentId }),
+    deleteFolder: (id, expectedRevision) => mutate({ type: "deleteFolder", id, expectedRevision }),
+    preferences: snapshot.data.preferences, saving, error, reload,
+    addPage, updatePage, refreshPage,
+    removePage: (id) => mutate({ type: "remove", id }),
+    reorderPages: (ids, folderId = null) => mutate({ type: "reorder", ids, folderId }),
+    getPage: (id) => snapshot.data.pages.find((page) => page.id === id),
+    setSortBy: (sortBy) => mutate({ type: "preferences", patch: { sortBy } }),
+    setView: (view) => mutate({ type: "preferences", patch: { view } }),
+    setThemePreference: (theme) => mutate({ type: "preferences", patch: { theme } }),
+    exportData: () => latest.current!.data,
+    importData: (data) => mutate({ type: "replace", data: librarySchema.parse(data), expectedRevision: latest.current!.revision }),
+    browserImportAvailable, importBrowserData, dismissBrowserImport,
+  }}>{children}</PagesContext.Provider>
 }
 
+export function useOptionalPages() { return useContext(PagesContext) }
 export function usePages(): PagesContextValue {
-  const ctx = useContext(PagesContext)
+  const ctx = useOptionalPages()
   if (!ctx) throw new Error("usePages must be used within a PagesProvider")
   return ctx
 }

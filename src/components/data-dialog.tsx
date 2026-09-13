@@ -32,6 +32,7 @@ export function DataDialog({
   const { exportData, importData } = usePages()
   const fileRef = useRef<HTMLInputElement>(null)
   const [paste, setPaste] = useState("")
+  const [importing, setImporting] = useState(false)
 
   const snapshot = () => JSON.stringify(exportData(), null, 2)
 
@@ -57,7 +58,8 @@ export function DataDialog({
     }
   }
 
-  const applyImport = (text: string) => {
+  const applyImport = async (text: string) => {
+    if (importing) return
     if (!text.trim()) {
       toast.error("Nothing to import — choose a file or paste your backup JSON.")
       return
@@ -70,14 +72,20 @@ export function DataDialog({
       return
     }
     const n = data.pages.length
+    const folderCount = data.folders?.length ?? 0
+    const summary = `${n} page${n === 1 ? "" : "s"} and ${folderCount} folder${folderCount === 1 ? "" : "s"}`
     const ok = window.confirm(
-      `Import ${n} page${n === 1 ? "" : "s"}? This replaces the pages and preferences currently stored in this browser.`,
+      `Import ${summary}? This replaces the pages, folders, and preferences currently saved to your account.`,
     )
     if (!ok) return
-    importData(data)
-    setPaste("")
-    toast.success(`Imported ${n} page${n === 1 ? "" : "s"}.`)
-    onOpenChange(false)
+    setImporting(true)
+    try {
+      await importData(data)
+      setPaste("")
+      toast.success(`Imported ${summary}.`)
+      onOpenChange(false)
+    } catch (error) { toast.error(error instanceof Error ? error.message : "Couldn't import your backup.") }
+    finally { setImporting(false) }
   }
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,9 +104,8 @@ export function DataDialog({
         <DialogHeader>
           <DialogTitle>Backup &amp; restore</DialogTitle>
           <DialogDescription>
-            Everything DebX stores — your saved pages and view preferences — lives in a
-            single browser key. Export it to move your setup to another browser or device,
-            then import it there.
+            Your pages, folders, and preferences are saved to your account and available on every
+            device when you sign in. Export a JSON backup or restore an existing backup.
           </DialogDescription>
         </DialogHeader>
 
@@ -126,7 +133,7 @@ export function DataDialog({
               className="sr-only"
               onChange={handleFile}
             />
-            <Button variant="outline" className="w-fit gap-2" onClick={() => fileRef.current?.click()}>
+            <Button variant="outline" className="w-fit gap-2" disabled={importing} onClick={() => fileRef.current?.click()}>
               <Upload className="size-4" /> Choose backup file…
             </Button>
             <textarea
@@ -138,7 +145,7 @@ export function DataDialog({
               className="h-24 w-full resize-none rounded-lg border border-input bg-background px-3 py-2 font-mono text-xs shadow-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             />
             <p className="text-sm text-muted-foreground">
-              Importing replaces the pages and preferences in this browser.
+              Importing replaces the pages, folders, and preferences in your account on all devices.
             </p>
           </div>
         </div>
@@ -147,7 +154,7 @@ export function DataDialog({
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          <Button onClick={() => applyImport(paste)} disabled={!paste.trim()}>
+          <Button onClick={() => applyImport(paste)} disabled={importing || !paste.trim()}>
             Import pasted JSON
           </Button>
         </DialogFooter>

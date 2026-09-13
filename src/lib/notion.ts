@@ -21,13 +21,10 @@ export function extractPageId(input: string): string {
 
 /**
  * Where notion-client should send its POST requests. Always the same-origin
- * `/notion-api/*` path, which is proxied to www.notion.so so the browser never
- * makes a cross-origin request:
- * - Dev / `vite preview`: Vite's server.proxy / preview.proxy (see vite.config).
- * - Prod: the host rewrites it (Vercel `vercel.json`, Netlify `_redirects`).
+ * `/api/notion/*` path, handled by authenticated Next.js API routes.
  */
 function getApiBaseUrl(): string {
-  return "/notion-api/api/v3"
+  return "/api/notion"
 }
 
 // --- recordMap normalization (ported from code100x/daily-code) -------------

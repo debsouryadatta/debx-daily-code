@@ -25,3 +25,12 @@ dist-ssr
 
 .env
 .env.local
+
+# Next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# Prisma generated client
+src/generated/prisma/

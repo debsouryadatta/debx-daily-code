@@ -1,88 +1,136 @@
 # DebX DailyCode
 
-A clean, no-backend reader for your **published Notion pages** — built to feel like
-the "new mode" reader in [code100x/daily-code](https://github.com/code100x/daily-code):
-a floating top appbar, full-page Notion rendering, and **Prev / Next** navigation
-between every page you add.
+A reader for published Notion pages with email/password accounts. Sign in on any
+device to access your saved links, nested folders, collections, order, and display preferences.
 
-You paste links to published Notion pages, they're saved in **localStorage**, and the
-app fetches + renders each one on demand with [react-notion-x](https://github.com/NotionX/react-notion-x).
-No database, no server of your own.
+The frontend is a client-only React application hosted by Next.js App Router.
+React Router handles UI navigation. All backend access uses HTTP API routes;
+there are no application Server Components or Server Actions.
 
-## Features
+## Stack
 
-- 📄 Add any **published** Notion page by URL (Share → Publish in Notion).
-- 🗂️ **Subpages become a reader**: add a parent page and its child pages turn into an
-  ordered set you flip through — no clicking out to notion.site.
-- ⬅️ ➡️ Prev/Next buttons, a table-of-contents menu, **and** keyboard arrow keys.
-- 🖱️ **Drag to reorder**, **sort** (date added / title / last edited), and switch
-  **list / grid** view — every preference is remembered.
-- ↕️ **Export / import** your whole setup (pages + preferences) as one JSON file to
-  move it between browsers or devices.
-- 🌗 Light / dark / system theme.
-- 💾 Everything lives in a single `localStorage` key — no accounts, no backend.
-- 🎨 React + TypeScript + Tailwind v4 + shadcn/ui (Base UI).
+- Next.js 16.3.5, React 19, TypeScript, Tailwind CSS v4, shadcn/ui.
+- Better Auth 1.7.4 for email/password signup, login, sessions, and logout.
+- Prisma ORM 7.10 with PostgreSQL on Neon.
+- react-notion-x and notion-client for published Notion content.
 
-## Tech
+## Local setup
 
-| | |
-|---|---|
-| Build | Vite + React 19 + TypeScript |
-| UI | Tailwind CSS v4, shadcn/ui (`base-nova` / Base UI), lucide icons |
-| Notion | `react-notion-x` + `notion-client` (v7), `notion-utils` |
-| Routing | `react-router-dom` |
+Use Node.js 20.19+, 22.12+, or 24+. Copy `.env.example` to `.env` and set:
 
-## Run locally
+- `DATABASE_URL`: your PostgreSQL connection string.
+- `BETTER_AUTH_SECRET`: a random secret of at least 32 characters.
+- `BETTER_AUTH_URL`: the application origin, locally `http://127.0.0.1:5173`.
+
+Keep `.env` private. None of these variables belongs in `NEXT_PUBLIC_*` variables.
 
 ```bash
 npm install
+npm run db:migrate
 npm run dev
 ```
 
-Open the dev URL, click **Add page**, paste a published Notion link, and read.
-Local dev needs no proxy — Vite proxies Notion's API for you (see `vite.config.ts`).
+Open `http://127.0.0.1:5173`, create an account, and add a published Notion link.
+The existing local environment has been configured and the migration applied.
 
-## How it works
+## Storage and sync
 
-A saved entry is a **collection**: the parent page plus its ordered child pages
-(extracted from the parent's recordMap). The reader opens the first child and
-Prev/Next moves through them — exactly like daily-code's track → problems. A page
-with no children is read as a single page. Internal Notion links that point at a
-sibling page navigate in-app; everything else opens on notion.so in a new tab.
+The account owns its saved links, titles, subpage lists, timestamps, manual order,
+sort choice, list/grid view, and theme preference. Prisma stores each library as a
+JSON document related to its user, preserving the existing backup format.
 
-1. `parsePageId` (notion-utils) extracts the page id from the pasted URL.
-2. `notion-client` fetches the page's `recordMap`. Two non-obvious fixes live in
-   [`src/lib/notion.ts`](src/lib/notion.ts):
-   - **`mode: "cors"`** — notion-client hardcodes `mode: "no-cors"`, which makes the
-     browser strip `Content-Type: application/json` and Notion 400s. We override it.
-   - **`value.value` normalization** (ported from daily-code) — Notion now nests blocks
-     one level deeper; without flattening + re-fetching missing children, pages render blank.
-3. `react-notion-x` renders the normalized `recordMap` (`fullPage`, `disableHeader`),
-   wrapped by our floating appbar + Prev/Next toolbar.
+Every library request validates the session. The server derives ownership from
+that session; the client account header only prevents an in-flight request from
+being applied after switching accounts. Writes use revision checks and retry
+against the latest document, so simultaneous edits do not overwrite unrelated
+changes. A backup replacement fails if its revision is stale.
 
-## Deploy
+The UI confirms changes only after the API saves them. It refreshes the library on
+window focus and every 15 seconds while visible. New sessions load from the
+database. Offline edits are not queued for later upload.
 
-The app is 100% static, but Notion's API can't be called directly from a browser
-(no CORS). A proxy sits in between — and on Vercel/Netlify the host *is* the proxy.
+Browser-only pages from the old app are never automatically assigned to an
+account. The home screen offers **Import browser pages into my account**, which
+merges them without replacing current account pages. The original browser data is
+retained. Backup restore is a separate, confirmed replacement of the account's
+pages and preferences across devices.
 
-### Vercel or Netlify (zero config)
+Notion document content is still fetched live from publicly published pages;
+the app stores links and library metadata, not an offline copy of each document.
+Notion availability and access restrictions can affect fetching.
 
-Just deploy `dist/`. The included [`vercel.json`](vercel.json) /
-[`public/_redirects`](public/_redirects) proxy `/notion-api/*` to `www.notion.so`,
-so the browser only ever calls your own origin (same-origin → no CORS). Nothing to
-configure — no env vars, no Worker, no serverless function.
+## Folders
+
+**My Library** is the root. Create folders inside it and nest folders up to five
+levels. Any folder may contain both saved pages and other folders. Existing pages
+stay at the root. Folders appear first, alphabetically, in list and grid views;
+pages retain their existing sorting and drag-to-reorder controls within each folder.
+
+Use **New folder** to create a folder in the current location. Folder menus offer
+rename, **Move to…**, and delete. Page menus also offer **Move to…**. The destination
+picker supports the root and nested folders. Moves preserve page reader URLs and
+carry a folder's entire subtree. The API rejects missing destinations, cycles,
+and moves that would put any descendant beyond level five.
+
+Breadcrumbs navigate back through the hierarchy. Adding a page saves it in the
+currently open folder. Folder deletion confirms the number of contained folders
+and pages and removes that subtree. If another device changes the library before
+the delete completes, the API rejects it and asks for fresh confirmation.
+
+Folders and page locations are included in account sync and JSON backups. Old
+backups still import at the root. The existing per-account JSON storage supports
+folders without a database schema migration.
+
+## API routes
+
+| Route | Purpose |
+| --- | --- |
+| `/api/auth/[...all]` | Better Auth email/password and session endpoints |
+| `GET /api/library` | Read the signed-in user's library and revision |
+| `PATCH /api/library` | Add, update, remove, reorder, change preferences, merge or restore |
+| `POST /api/notion/[endpoint]` | Authenticated, restricted proxy for Notion read endpoints |
+
+Library requests include `X-Account-Id` matching the authenticated user. Mutations
+require JSON and the configured application origin. Responses are private and
+uncached. The database client, auth server, and request helpers live in
+`src/server` and are marked `server-only`. The frontend uses `fetch` and Better
+Auth's React client.
+
+## Checks
 
 ```bash
-npm run build   # outputs dist/   (Vercel detects Vite automatically)
+npm run typecheck
+npm test
+npm run lint
+npm run build
 ```
 
-The same files also serve `index.html` for SPA routes like `/read/:id` on refresh.
+To run the database/API integration test with the development server running:
 
-> Deploying to a host that can't rewrite requests (e.g. GitHub Pages)? You'd need
-> to front Notion's API with your own CORS proxy and point the app at it. That path
-> isn't built in — Vercel/Netlify are the supported targets.
+```bash
+TEST_BASE_URL=http://127.0.0.1:5173 npm test
+```
 
-## Notes
+The integration test creates disposable accounts, checks cross-session
+persistence, account isolation, concurrent writes, origin validation, stale
+imports, password hashing, and logout. It deletes only those test accounts afterward.
+Without `TEST_BASE_URL`, that integration test is skipped and unit tests still run.
 
-- Only **publicly published** pages work (no auth token is ever used or needed).
-- Internal Notion links open the original page on notion.so.
+## Deployment
+
+Deploy using a Next.js-capable host and configure the three environment variables
+above, with `BETTER_AUTH_URL` set to the production HTTPS origin. Apply migrations
+as a release step before serving the updated application:
+
+```bash
+npm run db:migrate
+npm run build
+npm run start
+```
+
+`npm run preview` aliases the production server. The build uses `.next/`, not a
+static export. For a container that needs an externally reachable bind address,
+run `npx next start --hostname 0.0.0.0 --port 3000` behind your HTTPS host.
+
+Email/password authentication does not send verification or password-reset email;
+an email delivery provider would be needed for those additional flows.

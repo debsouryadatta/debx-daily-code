@@ -12,8 +12,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Separator } from "@/components/ui/separator"
+import { AccountMenu } from "@/components/account-menu"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { cn } from "@/lib/utils"
+import { usePages } from "@/lib/pages-context"
 import type { SubPage } from "@/lib/types"
 
 const pill = "rounded-lg border bg-background/70 shadow-sm backdrop-blur-lg"
@@ -30,6 +32,9 @@ export function ReaderAppbar({
   currentIndex: number
 }) {
   const navigate = useNavigate()
+  const { getPage } = usePages()
+  const parentId = getPage(collectionId)?.folderId
+  const homePath = parentId ? `/folders/${parentId}` : "/"
   const single = items.length <= 1
 
   return (
@@ -63,7 +68,7 @@ export function ReaderAppbar({
 
         {/* Title pill */}
         <div className={cn("flex items-center gap-3 px-3 py-2", pill)}>
-          <Link to="/" className="grid size-7 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
+          <Link to={homePath} className="grid size-7 place-items-center rounded-md bg-primary text-xs font-bold text-primary-foreground">
             DX
           </Link>
           <Separator orientation="vertical" className="hidden h-5 sm:block" />
@@ -79,10 +84,11 @@ export function ReaderAppbar({
       </div>
 
       <div className="pointer-events-auto flex items-center gap-2">
+        <AccountMenu />
         <ThemeToggle className={pill} />
         <Link
-          to="/"
-          aria-label="Home"
+          to={homePath}
+          aria-label="Back to library folder"
           className={cn(buttonVariants({ variant: "outline", size: "icon" }), pill)}
         >
           <Home className="size-5" />

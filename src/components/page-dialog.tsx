@@ -20,11 +20,13 @@ export function PageDialog({
   open,
   onOpenChange,
   page,
+  folderId = null,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   /** When provided, the dialog edits this page instead of adding a new one. */
   page?: SavedPage
+  folderId?: string | null
 }) {
   const { addPage, refreshPage } = usePages()
   const [title, setTitle] = useState("")
@@ -53,7 +55,7 @@ export function PageDialog({
         await refreshPage(page.id, title, url)
         toast.success("Page updated.")
       } else {
-        const created = await addPage(title, url)
+        const created = await addPage(title, url, folderId)
         const count = created.subpages?.length ?? 0
         toast.success(
           count > 0 ? `Added “${created.title}” (${count} pages).` : `Added “${created.title}”.`,

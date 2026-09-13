@@ -5,6 +5,8 @@ export interface SubPage {
 }
 
 export interface SavedPage {
+  /** Absent or null means My Library. */
+  folderId?: string | null
   /** Internal id used in routes and as a stable key. */
   id: string
   /** User-facing title shown in lists and the appbar (the parent page title). */
@@ -27,6 +29,14 @@ export interface SavedPage {
   updatedAt?: number
 }
 
+export interface Folder {
+  id: string
+  name: string
+  parentId: string | null
+  createdAt: number
+  updatedAt?: number
+}
+
 /** How the home list is ordered. `manual` = the user's drag-and-drop order. */
 export type SortKey =
   | "manual"
@@ -42,14 +52,16 @@ export type ViewMode = "list" | "grid"
 export interface Preferences {
   sortBy: SortKey
   view: ViewMode
+  theme?: "light" | "dark" | "system"
 }
 
 /**
- * The single object persisted under one localStorage key for the whole app.
- * Exporting/importing this object moves a user's setup between browsers/devices.
+ * Portable account library document persisted in PostgreSQL.
+ * The same shape supports JSON backups and legacy browser imports.
  */
 export interface AppData {
   version: number
   pages: SavedPage[]
+  folders?: Folder[]
   preferences: Preferences
 }

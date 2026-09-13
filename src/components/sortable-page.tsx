@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
-import { ArrowRight, GripVertical, MoreVertical, Pencil, Trash2 } from "lucide-react"
+import { ArrowRight, FolderInput, GripVertical, MoreVertical, Pencil, Trash2 } from "lucide-react"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -20,6 +20,7 @@ export function SortablePage({
   view,
   onEdit,
   onDelete,
+  onMove,
 }: {
   page: SavedPage
   /** 1-based position shown in list view. */
@@ -27,6 +28,7 @@ export function SortablePage({
   view: ViewMode
   onEdit: (page: SavedPage) => void
   onDelete: (page: SavedPage) => void
+  onMove: (page: SavedPage) => void
 }) {
   const {
     attributes,
@@ -73,6 +75,9 @@ export function SortablePage({
       <DropdownMenuContent align="end">
         <DropdownMenuItem onClick={() => onEdit(page)}>
           <Pencil className="mr-2 size-4" /> Edit
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onMove(page)}>
+          <FolderInput className="mr-2 size-4" /> Move to…
         </DropdownMenuItem>
         <DropdownMenuItem variant="destructive" onClick={() => onDelete(page)}>
           <Trash2 className="mr-2 size-4" /> Delete

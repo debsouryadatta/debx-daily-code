@@ -1,4 +1,5 @@
 import type { AppData, Preferences, SavedPage, SortKey, ViewMode } from "./types"
+import { librarySchema } from "./library"
 
 /** One key holds the whole app (pages + preferences) so it can be exported wholesale. */
 export const STORAGE_KEY = "debx"
@@ -49,6 +50,7 @@ function sanitizePage(input: unknown): SavedPage | null {
     createdAt,
     updatedAt: typeof p.updatedAt === "number" ? p.updatedAt : createdAt,
   }
+  if (p.folderId === null || typeof p.folderId === "string") page.folderId = p.folderId
   if (Array.isArray(p.subpages)) {
     page.subpages = p.subpages
       .map((s) => asRecord(s))
@@ -81,6 +83,7 @@ export function sanitizePreferences(input: unknown): Preferences {
   return {
     sortBy: p && SORT_KEYS.includes(p.sortBy as SortKey) ? (p.sortBy as SortKey) : DEFAULT_PREFERENCES.sortBy,
     view: p && VIEW_MODES.includes(p.view as ViewMode) ? (p.view as ViewMode) : DEFAULT_PREFERENCES.view,
+    theme: p && (p.theme === "light" || p.theme === "dark") ? p.theme : "system",
   }
 }
 
@@ -109,12 +112,7 @@ export function loadData(): AppData {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw)
-      return {
-        version: DATA_VERSION,
-        pages: sanitizePages(parsed?.pages),
-        preferences: sanitizePreferences(parsed?.preferences),
-      }
+      return parseImportData(raw)
     }
   } catch {
     // corrupt JSON → fall through to migration / empty
@@ -150,6 +148,11 @@ export function saveData(data: AppData): void {
  */
 export function parseImportData(raw: string): AppData {
   const parsed: unknown = JSON.parse(raw) // SyntaxError bubbles up to the caller
+  if (asRecord(parsed) && "folders" in asRecord(parsed)!) {
+    const result = librarySchema.safeParse(parsed)
+    if (!result.success) throw new Error("This backup has invalid pages or folders. Check folder references and the five-level limit.")
+    return result.data
+  }
   const pagesInput = Array.isArray(parsed) ? parsed : asRecord(parsed)?.pages
   if (!Array.isArray(pagesInput)) {
     throw new Error("That doesn't look like a DebX backup (no pages found).")
@@ -157,6 +160,7 @@ export function parseImportData(raw: string): AppData {
   return {
     version: DATA_VERSION,
     pages: sanitizePages(pagesInput),
+    folders: [],
     preferences: sanitizePreferences(Array.isArray(parsed) ? undefined : asRecord(parsed)?.preferences),
   }
 }

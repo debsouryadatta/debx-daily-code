@@ -37,17 +37,19 @@ export function Reader() {
   const [recordMap, setRecordMap] = useState<ExtendedRecordMap | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [scanError, setScanError] = useState<string | null>(null)
 
   // Self-heal legacy/empty entries: scan the parent for subpages once.
   useEffect(() => {
     if (!collection || collection.subpages !== undefined) return
     let cancelled = false
     fetchNotionPage(collection.pageId)
-      .then((rm) => {
-        if (!cancelled) updatePage(collection.id, { subpages: extractSubPages(rm) })
+      .then((rm) => extractSubPages(rm), () => [] as SubPage[])
+      .then(async (subpages) => {
+        if (!cancelled) await updatePage(collection.id, { subpages })
       })
-      .catch(() => {
-        if (!cancelled) updatePage(collection.id, { subpages: [] })
+      .catch((err: unknown) => {
+        if (!cancelled) setScanError(err instanceof Error ? err.message : "Couldn't save page details.")
       })
     return () => {
       cancelled = true
@@ -129,8 +131,10 @@ export function Reader() {
   if (collection.subpages === undefined || !current) {
     return (
       <div className="flex min-h-svh flex-col items-center justify-center gap-3 text-muted-foreground">
-        <Loader2 className="size-7 animate-spin" />
-        <p className="text-sm">Preparing “{collection.title}”…</p>
+        {scanError ? <><p role="alert" className="text-sm">{scanError}</p><Button onClick={() => navigate(0)}>Retry</Button></> : <>
+          <Loader2 className="size-7 animate-spin" />
+          <p className="text-sm">Preparing “{collection.title}”…</p>
+        </>}
       </div>
     )
   }
@@ -161,7 +165,7 @@ export function Reader() {
               Make sure the page is published to the web and the link is correct.
             </p>
             <div className="mt-5 flex justify-center gap-2">
-              <Link to="/" className={buttonVariants({ variant: "outline" })}>
+              <Link to={collection.folderId ? `/folders/${collection.folderId}` : "/"} className={buttonVariants({ variant: "outline" })}>
                 <ChevronLeft className="size-4" /> Home
               </Link>
               <Button onClick={() => navigate(0)}>Retry</Button>
