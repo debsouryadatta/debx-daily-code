@@ -16,12 +16,20 @@ export async function POST(request: Request, context: { params: Promise<{ endpoi
     try { JSON.parse(body) } catch { return Response.json({ error: "Invalid JSON." }, { status: 400, headers: noStore }) }
     const upstream = await fetch(`https://www.notion.so/api/v3/${endpoint}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Notion rejects the default Node fetch User-Agent. Identify this reader
+      // explicitly, without forwarding the user's cookies or other headers.
+      headers: {
+        "Content-Type": "application/json",
+        "User-Agent": "DebX-DailyCode/1.0 (Notion page reader)",
+      },
       body,
       cache: "no-store",
       signal: AbortSignal.timeout(30_000),
     })
-    if (!upstream.ok) return Response.json({ error: "Notion couldn't load this published page. Please try again." }, { status: 502, headers: noStore })
+    if (!upstream.ok) {
+      console.error("Notion upstream request failed", { endpoint, status: upstream.status })
+      return Response.json({ error: "Notion couldn't load this published page. Please try again." }, { status: 502, headers: noStore })
+    }
     return new Response(upstream.body, { headers: { ...noStore, "Content-Type": "application/json" } })
   } catch (error) {
     return Response.json({ error: error instanceof RangeError ? "Request is too large." : "Couldn't reach Notion. Please try again." }, { status: error instanceof RangeError ? 413 : 502, headers: noStore })
